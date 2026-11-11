@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { IScannerControls } from '@zxing/browser'
 import { Icon } from '../../components/Icon'
-import { furnitureCatalog, userWarranties, type Furniture, type Warranty, type WarrantyStatus } from '../../data/dashboardData'
+import type { Furniture, Warranty, WarrantyStatus } from '../../data/dashboardData'
+import { getAdminDataSnapshot, setAdminData, useAdminData, type AdminData } from '../../data/adminDataStore'
+import { getConsumerWarranties, getWarrantyFurniture, getWarrantyProductName } from '../../data/consumerData'
 import { FurnitureIllustration } from './Furniture'
 
 type NdefRecordData = { recordType: string; data: DataView }
@@ -18,14 +20,62 @@ declare global {
 type ScanResult = {
   serialNumber: string | null
   warranty: Warranty | null
+  productName: string | null
+  verdict: 'verified' | 'registered' | 'mismatch' | 'unknown'
+  chipId: string | null
 }
 
-function getScanResult(payload: string): ScanResult {
-  const serialNumber = payload.match(/WC-[A-Z]{3}-\d{4}-\d{5}/i)?.[0].toUpperCase() ?? null
+function getScanResult(payload: string, data: AdminData): ScanResult {
+  let serialNumber: string | null = null
+  let chipId: string | null = null
+  let authInitHash: string | null = null
+  try {
+    const parsed: unknown = JSON.parse(payload)
+    if (parsed && typeof parsed === 'object') {
+      const record = parsed as Record<string, unknown>
+      if (typeof record.serialNumber === 'string') serialNumber = record.serialNumber
+      if (typeof record.chipId === 'string') chipId = record.chipId
+      if (typeof record.authInitHash === 'string') authInitHash = record.authInitHash
+    }
+  } catch {
+    // Non-JSON payloads are handled as URLs or serial numbers below.
+  }
+  try {
+    const url = new URL(payload)
+    serialNumber ??= url.searchParams.get('serial') ?? url.searchParams.get('serialNumber')
+    chipId ??= url.searchParams.get('chip')
+    authInitHash ??= url.searchParams.get('hash')
+  } catch {
+    // NFC tags may contain a plain serial number instead of a URL.
+  }
+  serialNumber ??= payload.match(/\b(?:WC-[A-Z]{3}-\d{4}-\d{5,8}|MBL-[A-Z0-9]+(?:-[A-Z0-9]+)+)\b/i)?.[0] ?? null
+  serialNumber = serialNumber?.toUpperCase() ?? null
+
   const warranty = serialNumber
-    ? userWarranties.find((item) => item.serialNumber.toUpperCase() === serialNumber) ?? null
+    ? getConsumerWarranties(data).find((item) => item.serialNumber.toUpperCase() === serialNumber)
     : null
-  return { serialNumber, warranty }
+  const chip = serialNumber
+    ? data.chips.find((item) => item.serialNumber.toUpperCase() === serialNumber && (!chipId || item.chipId.toLowerCase() === chipId.toLowerCase()))
+    : null
+  const suppliedChipProof = Boolean(chipId || authInitHash)
+  const verifiedChip = Boolean(chip && authInitHash && chip.authInitHash === authInitHash)
+  const registered = Boolean(warranty || chip)
+  const verdict = !serialNumber
+    ? 'unknown'
+    : suppliedChipProof && !verifiedChip
+      ? 'mismatch'
+      : verifiedChip
+        ? 'verified'
+        : registered
+          ? 'registered'
+          : 'unknown'
+  return {
+    serialNumber,
+    warranty: warranty ?? null,
+    productName: warranty ? getWarrantyProductName(warranty, data) : null,
+    verdict,
+    chipId: chip?.chipId ?? chipId,
+  }
 }
 
 function describeCameraError(error: unknown) {
@@ -55,51 +105,48 @@ function decodeNdefRecord(record: NdefRecordData) {
 }
 
 type ScannerPlatform = 'desktop' | 'android-chrome' | 'mobile-other'
-type MockScanScenario = 'valid' | 'suspected' | 'unregistered'
-
-const mockScanResults: Record<MockScanScenario, { title: string; description: string; tone: string; update: string }> = {
-  valid: {
-    title: 'Produk Asli Terverifikasi',
-    description: 'Hash produk cocok dengan catatan passport digital.',
-    tone: 'valid',
-    update: 'AuthentiCoding diperbarui · Tag #AC-8842',
-  },
-  suspected: {
-    title: 'Hash Tidak Cocok',
-    description: 'Peringatan: kemungkinan chip kloning atau data tag telah berubah.',
-    tone: 'suspected',
-    update: 'Autentikasi ditahan untuk pemeriksaan lanjutan.',
-  },
-  unregistered: {
-    title: 'Tag NFC Tidak Terdaftar',
-    description: 'Tag ini tidak ditemukan di database produk WoodChain.',
-    tone: 'unregistered',
-    update: 'Tidak ada catatan AuthentiCoding untuk tag ini.',
-  },
-}
+type ScanMode = 'qr' | 'nfc'
 
 export function AuthenticityScanner({ platform, onClose }: { platform: ScannerPlatform; onClose: () => void }) {
-  const [mode, setMode] = useState<'camera' | 'nfc' | 'mock'>(() => platform === 'desktop' ? 'mock' : platform === 'android-chrome' ? 'nfc' : 'camera')
+  const [mode, setMode] = useState<ScanMode>('qr')
   const [cameraStatus, setCameraStatus] = useState('Membuka kamera...')
   const [cameraError, setCameraError] = useState<string | null>(null)
   const [cameraAttempt, setCameraAttempt] = useState(0)
   const [nfcStatus, setNfcStatus] = useState('Dekatkan ponsel ke tag NFC produk.')
   const [nfcError, setNfcError] = useState<string | null>(null)
-  const [mockScenario, setMockScenario] = useState<MockScanScenario | null>(null)
   const [result, setResult] = useState<ScanResult | null>(null)
+  const [manualPayload, setManualPayload] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const scannerControlsRef = useRef<IScannerControls | null>(null)
   const nfcAbortControllerRef = useRef<AbortController | null>(null)
   const cameraSessionRef = useRef(0)
 
-  useEffect(() => {
-    if (platform === 'android-chrome' && mode === 'nfc') void startNfc()
-    // NFC scan is initiated once on modal open; retries are explicit user actions.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  const processPayload = useCallback((payload: string, method: 'QR' | 'NFC') => {
+    const data = getAdminDataSnapshot()
+    const scanResult = getScanResult(payload, data)
+    setResult(scanResult)
+    const registeredChip = scanResult.serialNumber
+      ? data.chips.find((chip) => chip.serialNumber.toUpperCase() === scanResult.serialNumber)
+      : undefined
+    const log = {
+      logId: `LOG-${Date.now()}`,
+      serialNumber: scanResult.serialNumber ?? 'UNKNOWN',
+      scannedAt: new Date().toLocaleString('sv-SE'),
+      device: `${method} · ${platform}`,
+      result: scanResult.verdict === 'verified'
+        ? 'AuthentiCoding Verified'
+        : scanResult.verdict === 'mismatch'
+          ? 'AuthentiCoding Hash Mismatch'
+          : scanResult.verdict === 'registered'
+            ? 'Produk terdaftar'
+            : 'Kode tidak terdaftar',
+      newDynamicHash: registeredChip?.authInitHash ?? 'N/A',
+    }
+    setAdminData((current) => ({ ...current, nfcLogs: [log, ...current.nfcLogs].slice(0, 100) }))
+  }, [platform])
 
   useEffect(() => {
-    if (mode !== 'camera' || result) return
+    if (mode !== 'qr' || result) return
 
     const session = cameraSessionRef.current + 1
     cameraSessionRef.current = session
@@ -111,21 +158,25 @@ export function AuthenticityScanner({ platform, onClose }: { platform: ScannerPl
         if (!isCurrentSession() || !videoRef.current) return
 
         const reader = new BrowserQRCodeReader()
-        const controls = await reader.decodeFromVideoDevice(undefined, videoRef.current, (decoded) => {
-          if (decoded && isCurrentSession()) {
-            cameraSessionRef.current += 1
-            setResult(getScanResult(decoded.getText()))
-            scannerControlsRef.current?.stop()
-            scannerControlsRef.current = null
-          }
-        })
+        const controls = await reader.decodeFromConstraints(
+          { audio: false, video: { facingMode: { ideal: 'environment' } } },
+          videoRef.current,
+          (decoded) => {
+            if (decoded && isCurrentSession()) {
+              cameraSessionRef.current += 1
+              processPayload(decoded.getText(), 'QR')
+              scannerControlsRef.current?.stop()
+              scannerControlsRef.current = null
+            }
+          },
+        )
 
         if (!isCurrentSession()) {
           controls.stop()
           return
         }
         scannerControlsRef.current = controls
-        setCameraStatus('Kamera aktif. Arahkan ke kode QR produk.')
+        setCameraStatus('Kamera aktif. Arahkan ke QR pairing WoodChain.')
       } catch (error) {
         if (isCurrentSession()) setCameraError(describeCameraError(error))
       }
@@ -137,7 +188,7 @@ export function AuthenticityScanner({ platform, onClose }: { platform: ScannerPl
       scannerControlsRef.current?.stop()
       scannerControlsRef.current = null
     }
-  }, [cameraAttempt, mode, result])
+  }, [cameraAttempt, mode, processPayload, result])
 
   useEffect(() => () => nfcAbortControllerRef.current?.abort(), [])
 
@@ -147,6 +198,7 @@ export function AuthenticityScanner({ platform, onClose }: { platform: ScannerPl
     setMode('nfc')
     setResult(null)
     setNfcError(null)
+    setCameraError(null)
 
     const NDEFReader = window.NDEFReader
     if (!NDEFReader) {
@@ -162,7 +214,7 @@ export function AuthenticityScanner({ platform, onClose }: { platform: ScannerPl
       const reader = new NDEFReader()
       reader.addEventListener('reading', (event: Event) => {
         const payload = (event as NdefReadingEvent).message.records.map(decodeNdefRecord).join(' ')
-        setResult(getScanResult(payload))
+        processPayload(payload, 'NFC')
         setNfcStatus('Tag NFC berhasil dibaca.')
         controller.abort()
       }, { signal: controller.signal })
@@ -184,12 +236,19 @@ export function AuthenticityScanner({ platform, onClose }: { platform: ScannerPl
     setCameraStatus('Membuka kamera...')
     setCameraAttempt((attempt) => attempt + 1)
     setResult(null)
-    setMode('camera')
+    setMode('qr')
   }
 
   const retryScan = () => {
     setResult(null)
     if (mode === 'nfc') void startNfc()
+  }
+
+  const submitManualPayload = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (!manualPayload.trim()) return
+    processPayload(manualPayload.trim(), 'QR')
+    setManualPayload('')
   }
 
   return (
@@ -202,76 +261,66 @@ export function AuthenticityScanner({ platform, onClose }: { platform: ScannerPl
         <div className="scanner-heading">
           <span className="scanner-heading-icon"><Icon name="shield" size={21} /></span>
           <h2 id="scanner-title">Pindai keaslian produk</h2>
-          <p>{platform === 'desktop' ? 'Pilih skenario simulasi untuk menguji hasil autentikasi produk.' : platform === 'android-chrome' ? 'Tempelkan ponsel ke tag NFC produk untuk memulai verifikasi.' : 'Pindai kode QR produk menggunakan kamera ponsel.'}</p>
+          <p>Pindai QR dengan kamera di desktop maupun ponsel, atau gunakan NFC pada perangkat yang mendukungnya.</p>
         </div>
 
-        {platform === 'mobile-other' && (
-          <div className="scanner-mode-switch" aria-label="Pilih metode pemindaian">
-            <button className={mode === 'camera' ? 'scanner-mode--active' : ''} onClick={showCamera}><Icon name="scan" size={16} /> Kamera QR</button>
-            <button className={mode === 'nfc' ? 'scanner-mode--active' : ''} onClick={() => void startNfc()}><Icon name="nfc" size={17} /> NFC</button>
-          </div>
-        )}
+        <div className="scanner-mode-switch" aria-label="Pilih metode pemindaian">
+          <button className={mode === 'qr' ? 'scanner-mode--active' : ''} onClick={showCamera}><Icon name="scan" size={16} /> Kamera QR</button>
+          <button className={mode === 'nfc' ? 'scanner-mode--active' : ''} onClick={() => void startNfc()}><Icon name="nfc" size={17} /> NFC</button>
+        </div>
 
-        {platform === 'desktop' ? (
-          <div className="desktop-scanner">
-            <div className="desktop-scanner-prompt"><Icon name="nfc" size={25} /><div><strong>Simulasi pemindai desktop</strong><span>Pilih salah satu skenario untuk melihat hasil pengujian.</span></div></div>
-            <div className="scanner-scenario-list">
-              <button onClick={() => setMockScenario('valid')}><span className="scenario-marker scenario-marker--valid">A</span><span><strong>Skenario A · Valid</strong><small>Produk asli dan AuthentiCoding diperbarui</small></span><Icon name="chevron" size={16} /></button>
-              <button onClick={() => setMockScenario('suspected')}><span className="scenario-marker scenario-marker--suspected">B</span><span><strong>Skenario B · Diduga palsu</strong><small>Hash tidak cocok atau chip kloning</small></span><Icon name="chevron" size={16} /></button>
-              <button onClick={() => setMockScenario('unregistered')}><span className="scenario-marker scenario-marker--unregistered">C</span><span><strong>Skenario C · Belum terdaftar</strong><small>Tag NFC tidak ditemukan di database</small></span><Icon name="chevron" size={16} /></button>
-            </div>
-            {mockScenario && (
-              <div className={`mock-scan-result mock-scan-result--${mockScanResults[mockScenario].tone}`} role="status">
-                <strong>{mockScanResults[mockScenario].title}</strong>
-                <span>{mockScanResults[mockScenario].description}</span>
-                <small>{mockScanResults[mockScenario].update}</small>
-              </div>
-            )}
-          </div>
-        ) : result ? (
-          <div className={`scanner-result${result.warranty ? ' scanner-result--matched' : ''}`} role="status">
-            <span className="scanner-result-icon"><Icon name={result.warranty ? 'shield' : 'close'} size={21} /></span>
-            <strong>{result.warranty ? 'Nomor seri terdaftar' : result.serialNumber ? 'Nomor seri tidak terdaftar' : 'Kode tidak dikenali'}</strong>
-            {result.warranty ? (
-              <>
-                <span>{furnitureCatalog.find((item) => item.id === result.warranty?.furnitureId)?.name} · {result.warranty.serialNumber}</span>
-                <WarrantyStatusBadge status={result.warranty.status} />
-              </>
-            ) : (
-              <span>{result.serialNumber ?? 'Kode yang dipindai tidak memuat nomor seri WoodChain.'}</span>
-            )}
-            <p>Kecocokan dengan data garansi lokal saja. Keaslian tag fisik belum diverifikasi oleh server.</p>
+        {result ? (
+          <div className={`scanner-result${result.verdict === 'verified' || result.verdict === 'registered' ? ' scanner-result--matched' : ''}`} role="status">
+            <span className="scanner-result-icon"><Icon name={result.verdict === 'verified' || result.verdict === 'registered' ? 'shield' : 'close'} size={21} /></span>
+            <strong>
+              {result.verdict === 'verified' ? 'Produk dan pairing terverifikasi'
+                : result.verdict === 'registered' ? 'Produk terdaftar'
+                  : result.verdict === 'mismatch' ? 'Hash pairing tidak cocok'
+                    : 'Kode tidak dikenali'}
+            </strong>
+            {result.serialNumber && <span>{result.productName ? `${result.productName} · ` : ''}{result.serialNumber}</span>}
+            {result.chipId && <span>ID chip: {result.chipId}</span>}
+            {result.warranty && <WarrantyStatusBadge status={result.warranty.status} />}
+            <p>Hasil dicocokkan dengan data demo yang tersimpan di browser ini; verifikasi kriptografis server belum tersedia.</p>
             <button className="scanner-retry-button" onClick={retryScan}>Pindai lagi</button>
           </div>
-        ) : mode === 'camera' ? (
-          <div className="scanner-camera">
-            <video ref={videoRef} autoPlay muted playsInline aria-label="Pratinjau kamera untuk memindai produk" />
-            {!cameraError && <span className="scanner-frame" aria-hidden="true" />}
-            <p role={cameraError ? 'alert' : 'status'}>{cameraError ?? cameraStatus}</p>
-            {cameraError && <button className="scanner-retry-button" onClick={showCamera}>Coba lagi</button>}
-          </div>
+        ) : mode === 'qr' ? (
+          <>
+            <div className="scanner-camera">
+              <video ref={videoRef} autoPlay muted playsInline aria-label="Pratinjau kamera untuk memindai QR produk" />
+              {!cameraError && <span className="scanner-frame" aria-hidden="true" />}
+              <p role={cameraError ? 'alert' : 'status'}>{cameraError ?? cameraStatus}</p>
+              {cameraError && <button className="scanner-retry-button" onClick={showCamera}>Coba kamera lagi</button>}
+            </div>
+            <form className="scanner-manual-form" onSubmit={submitManualPayload}>
+              <label htmlFor="scanner-manual-code">Tidak bisa mengakses kamera? Tempel payload QR</label>
+              <div><input id="scanner-manual-code" value={manualPayload} onChange={(event) => setManualPayload(event.currentTarget.value)} placeholder="woodchain://verify?serial=..." /><button type="submit" disabled={!manualPayload.trim()}>Verifikasi</button></div>
+            </form>
+          </>
         ) : (
           <div className="scanner-nfc">
             <span className="scanner-nfc-icon"><Icon name="nfc" size={32} /></span>
-            <strong>{nfcError ? 'NFC belum dapat digunakan' : 'Tempelkan ponsel Android ke tag produk'}</strong>
+            <strong>{nfcError ? 'NFC belum dapat digunakan' : 'Tempelkan perangkat ke tag produk'}</strong>
             <p role={nfcError ? 'alert' : 'status'}>{nfcError ?? nfcStatus}</p>
-            {(nfcError || platform === 'android-chrome') && <button className="scanner-retry-button" onClick={() => void startNfc()}>{nfcError ? 'Coba NFC lagi' : 'Mulai pindai NFC'}</button>}
+            <button className="scanner-retry-button" onClick={() => void startNfc()}>{nfcError ? 'Coba NFC lagi' : 'Mulai pindai NFC'}</button>
           </div>
         )}
 
-        <p className="scanner-disclaimer">{platform === 'desktop' ? 'Mode desktop adalah simulasi skenario; tidak membaca perangkat NFC.' : 'Pencocokan nomor seri masih memakai data contoh lokal. Verifikasi kriptografis memerlukan server dan tag bertanda tangan.'}</p>
+        <p className="scanner-disclaimer">Kamera memerlukan izin browser dan HTTPS atau localhost. NFC memerlukan browser/perangkat yang kompatibel. Status dicocokkan dengan data lokal demo.</p>
       </section>
     </div>
   )
 }
 
 export function MyWarranties() {
+  const { data } = useAdminData()
+  const warranties = getConsumerWarranties(data)
   const [selectedWarranty, setSelectedWarranty] = useState<Warranty | null>(null)
   const [transferWarranty, setTransferWarranty] = useState<Warranty | null>(null)
 
-  const activeCount = userWarranties.filter((warranty) => warranty.status === 'active' || warranty.status === 'expiringSoon').length
-  const selectedFurniture = selectedWarranty && furnitureCatalog.find((item) => item.id === selectedWarranty.furnitureId)
-  const transferFurniture = transferWarranty && furnitureCatalog.find((item) => item.id === transferWarranty.furnitureId)
+  const activeCount = warranties.filter((warranty) => warranty.status === 'active' || warranty.status === 'expiringSoon').length
+  const selectedFurniture = selectedWarranty && getWarrantyFurniture(selectedWarranty, data)
+  const transferFurniture = transferWarranty && getWarrantyFurniture(transferWarranty, data)
 
   return (
     <>
@@ -288,13 +337,13 @@ export function MyWarranties() {
         <div className="warranty-section-heading">
           <div>
             <h2 id="warranty-heading">Wallet-linked warranties</h2>
-            <p>{userWarranties.length} NFT garansi tercatat pada Smart Account Anda</p>
+            <p>{warranties.length} NFT garansi tercatat pada Smart Account Anda</p>
           </div>
           <span className="warranty-list-count"><Icon name="shield" size={15} /> ERC-721</span>
         </div>
         <div className="warranty-grid">
-          {userWarranties.map((warranty) => {
-            const furniture = furnitureCatalog.find((item) => item.id === warranty.furnitureId)
+          {warranties.map((warranty) => {
+            const furniture = getWarrantyFurniture(warranty, data)
             if (!furniture) return null
 
             return (
@@ -304,7 +353,7 @@ export function MyWarranties() {
                   <span className="warranty-card-copy">
                     <span className="warranty-nft-token">NFT GARANSI · {warranty.tokenId}</span>
                     <span className="warranty-product-category">{furniture.category}</span>
-                    <strong className="warranty-product-name">{furniture.name}</strong>
+                    <strong className="warranty-product-name">{getWarrantyProductName(warranty, data)}</strong>
                     <span className="warranty-serial"><span>No. seri</span><strong>{warranty.serialNumber}</strong></span>
                     <span className="warranty-purchase"><span>Tanggal pembelian</span><strong>{warranty.purchaseDate}</strong></span>
                     <span className="warranty-wallet-line"><Icon name="shield" size={12} /> {warranty.walletAddress}</span>
@@ -360,6 +409,7 @@ function WarrantyStatusBadge({ status }: { status: WarrantyStatus }) {
     expiringSoon: 'Expiring Soon',
     claimed: 'Claimed',
     expired: 'Expired',
+    voided: 'Warranty Voided',
   }
   return <span className={`warranty-status warranty-status--${status}`}><span />{labels[status]}</span>
 }

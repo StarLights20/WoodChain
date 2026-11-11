@@ -60,7 +60,7 @@ export const furnitureCatalog: Furniture[] = mockProducts.map((product) => {
   return { ...product, id: product.id }
 })
 
-export type WarrantyStatus = 'active' | 'expiringSoon' | 'claimed' | 'expired'
+export type WarrantyStatus = 'active' | 'expiringSoon' | 'claimed' | 'expired' | 'voided'
 
 export type Warranty = {
   id: string

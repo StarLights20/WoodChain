@@ -1,12 +1,23 @@
 import { Icon, type IconName } from '../../components/Icon'
-import { adminOrders, userOrders } from '../../data/dashboardData'
+import { useAdminData } from '../../data/adminDataStore'
 
 export function AdminOverview() {
+  const { data } = useAdminData()
+  const pendingOrderCount = data.pendingOrders.filter((order) => order.status === 'Pending Mint').length
+  const recentOrders = data.pendingOrders.slice(0, 3).map((order) => ({
+    id: order.orderId,
+    customer: order.customerEmail,
+    item: order.productName,
+    date: order.orderDate,
+    status: order.status === 'Pending Mint' ? 'Perlu diproses' : 'Garansi diterbitkan',
+    tone: order.status === 'Pending Mint' ? 'waiting' : 'complete',
+  }))
+
   return (
     <>
       <section className="stats-grid stats-grid--admin" aria-label="Statistik bisnis">
         <MetricCard label="Total penjualan" value="Rp 128,4 jt" change="+12,8% dari bulan lalu" icon="chart" tint="green" trend />
-        <MetricCard label="Pesanan baru" value="24" change="+6 pesanan hari ini" icon="orders" tint="amber" trend />
+        <MetricCard label="Pesanan baru" value={String(pendingOrderCount)} change="Menunggu konfirmasi admin" icon="orders" tint="amber" />
         <MetricCard label="Pengguna aktif" value="1.284" change="+8,2% dari bulan lalu" icon="users" tint="purple" trend />
         <MetricCard label="Stok produk" value="86" change="7 produk stok menipis" icon="box" tint="blue" trend />
       </section>
@@ -36,7 +47,7 @@ export function AdminOverview() {
 
       <section className="panel orders-panel admin-orders-panel">
         <PanelHeading title="Pesanan terbaru" subtitle="Pesanan yang membutuhkan perhatian" action="Lihat semua pesanan" />
-        <OrderTable rows={adminOrders} admin />
+        <OrderTable rows={recentOrders} admin />
       </section>
       <section className="admin-notice"><span>!</span><p><strong>Perhatian:</strong> 7 produk memiliki stok menipis atau habis.</p><button>Periksa inventaris <Icon name="arrow" size={14} /></button></section>
     </>
@@ -77,7 +88,7 @@ function PanelHeading({ title, subtitle, action }: { title: string; subtitle: st
   )
 }
 
-function OrderTable({ rows, admin }: { rows: typeof userOrders | typeof adminOrders; admin: boolean }) {
+function OrderTable({ rows, admin }: { rows: Array<{ id: string; customer?: string; item: string; date: string; status: string; tone: string }>; admin: boolean }) {
   return (
     <div className="table-scroll">
       <table className="orders-table">
@@ -92,6 +103,7 @@ function OrderTable({ rows, admin }: { rows: typeof userOrders | typeof adminOrd
               <td><button className="row-action" aria-label={`Detail ${row.id}`}><Icon name="chevron" size={16} /></button></td>
             </tr>
           ))}
+          {rows.length === 0 && <tr><td colSpan={admin ? 6 : 5} className="admin-table-empty">Belum ada pesanan masuk.</td></tr>}
         </tbody>
       </table>
     </div>

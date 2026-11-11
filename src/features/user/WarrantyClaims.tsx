@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Icon } from '../../components/Icon'
-import { furnitureCatalog, userWarranties } from '../../data/dashboardData'
+import { furnitureCatalog } from '../../data/dashboardData'
+import { useAdminData } from '../../data/adminDataStore'
+import { getConsumerWarranties, getWarrantyProductName } from '../../data/consumerData'
 
-type ClaimStatus = 'submitted' | 'inReview' | 'approved' | 'rejected' | 'repaired'
+type ClaimStatus = 'submitted' | 'inReview' | 'approved' | 'rejected' | 'repaired' | 'voided'
 
 type WarrantyClaim = {
   id: string
@@ -13,17 +15,21 @@ type WarrantyClaim = {
   photoName: string
 }
 
-const claimStageLabels = ['Submitted', 'In Review', 'Approved / Rejected', 'Repaired']
+const claimStageLabels = ['Submitted', 'In Review', 'Approved / Rejected / Voided', 'Repaired']
+
+function formatClaimDate() {
+  return new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium' }).format(new Date())
+}
 
 function getClaimStageIndex(status: ClaimStatus) {
   if (status === 'submitted') return 0
   if (status === 'inReview') return 1
-  if (status === 'approved' || status === 'rejected') return 2
+  if (status === 'approved' || status === 'rejected' || status === 'voided') return 2
   return 3
 }
 
 export function WarrantyClaims() {
-  const [claims, setClaims] = useState<WarrantyClaim[]>([
+  const [localClaims] = useState<WarrantyClaim[]>([
     {
       id: 'CL-2026-014',
       warrantyId: 'warranty-rona',
@@ -46,7 +52,30 @@ export function WarrantyClaims() {
   const [photo, setPhoto] = useState<{ file: File; previewUrl: string } | null>(null)
   const [submissionError, setSubmissionError] = useState('')
   const [submissionNotice, setSubmissionNotice] = useState('')
-  const claimableWarranties = userWarranties.filter((warranty) => warranty.status === 'active' || warranty.status === 'expiringSoon')
+  const { data, setData } = useAdminData()
+  const warranties = getConsumerWarranties(data)
+  const sharedClaims: WarrantyClaim[] = data.claims.flatMap((claim) => {
+    if (!claim.warrantySerialNumber) return []
+    const warranty = warranties.find((item) => item.serialNumber.toUpperCase() === claim.warrantySerialNumber?.toUpperCase())
+    if (!warranty) return []
+    const statuses: Record<string, ClaimStatus> = {
+      Submitted: 'submitted',
+      'In Review': 'inReview',
+      Approved: 'approved',
+      Rejected: 'rejected',
+      'Warranty Voided': 'voided',
+    }
+    return [{
+      id: claim.claimId,
+      warrantyId: warranty.id,
+      description: claim.issueDescription,
+      submittedAt: claim.submittedDate,
+      status: statuses[claim.status] ?? 'submitted',
+      photoName: claim.photoName ?? claim.photoIpfsUrl,
+    }]
+  })
+  const claims = [...sharedClaims, ...localClaims]
+  const claimableWarranties = warranties.filter((warranty) => warranty.status === 'active' || warranty.status === 'expiringSoon')
 
   useEffect(() => {
     if (!photo) return
@@ -62,15 +91,37 @@ export function WarrantyClaims() {
       return
     }
 
+    const warranty = warranties.find((item) => item.id === selectedWarrantyId)
+    if (!warranty) {
+      setSubmissionError('NFT garansi yang dipilih tidak lagi tersedia.')
+      return
+    }
+    const id = `CLM-${data.claims.length + 1}`
+    const productName = getWarrantyProductName(warranty, data)
+    const submittedAt = formatClaimDate()
     const newClaim: WarrantyClaim = {
-      id: `CL-2026-${String(claims.length + 15).padStart(3, '0')}`,
+      id,
       warrantyId: selectedWarrantyId,
       description: description.trim(),
-      submittedAt: new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium' }).format(new Date()),
+      submittedAt,
       status: 'submitted',
       photoName: photo.file.name,
     }
-    setClaims((existingClaims) => [newClaim, ...existingClaims])
+    setData((current) => ({
+      ...current,
+      claims: [{
+        claimId: id,
+        tokenId: warranty.tokenId.replace(/^#/, ''),
+        customerEmail: 'user@example.com',
+        productName,
+        issueDescription: description.trim(),
+        photoIpfsUrl: `ipfs://demo/${encodeURIComponent(photo.file.name)}`,
+        status: 'Submitted',
+        submittedDate: submittedAt,
+        warrantySerialNumber: warranty.serialNumber,
+        photoName: photo.file.name,
+      }, ...current.claims],
+    }))
     setDescription('')
     setPhoto(null)
     setSelectedWarrantyId('')
@@ -92,10 +143,9 @@ export function WarrantyClaims() {
             <label htmlFor="claim-warranty">NFT garansi yang dimiliki</label>
             <select id="claim-warranty" value={selectedWarrantyId} onChange={(event) => setSelectedWarrantyId(event.target.value)} required>
               <option value="">Pilih NFT garansi</option>
-              {claimableWarranties.map((warranty) => {
-                const furniture = furnitureCatalog.find((item) => item.id === warranty.furnitureId)
-                return <option key={warranty.id} value={warranty.id}>{furniture?.name} · {warranty.tokenId} · {warranty.serialNumber}</option>
-              })}
+              {claimableWarranties.map((warranty) => (
+                <option key={warranty.id} value={warranty.id}>{getWarrantyProductName(warranty, data)} · {warranty.tokenId} · {warranty.serialNumber}</option>
+              ))}
             </select>
 
             <label htmlFor="claim-photo">Foto bukti kerusakan</label>
@@ -131,15 +181,15 @@ export function WarrantyClaims() {
           <div className="panel-heading"><div><h2>Tracking timeline klaim</h2><p>Status pengajuan garansi Anda</p></div></div>
           <div className="claim-list">
             {claims.map((claim) => {
-              const warranty = userWarranties.find((item) => item.id === claim.warrantyId)
+              const warranty = warranties.find((item) => item.id === claim.warrantyId)
               const furniture = warranty && furnitureCatalog.find((item) => item.id === warranty.furnitureId)
               if (!warranty || !furniture) return null
 
               return (
                 <article className="claim-item" key={claim.id}>
                   <div className="claim-item-heading">
-                    <div><strong>{claim.id} · {furniture.name}</strong><span>{warranty.tokenId} · Diajukan {claim.submittedAt}</span></div>
-                    <span className={`claim-status-pill claim-status-pill--${claim.status}`}>{claim.status === 'inReview' ? 'In Review' : claim.status[0].toUpperCase() + claim.status.slice(1)}</span>
+                    <div><strong>{claim.id} · {getWarrantyProductName(warranty, data)}</strong><span>{warranty.tokenId} · Diajukan {claim.submittedAt}</span></div>
+                    <span className={`claim-status-pill claim-status-pill--${claim.status}`}>{claim.status === 'inReview' ? 'In Review' : claim.status === 'voided' ? 'Warranty Voided' : claim.status[0].toUpperCase() + claim.status.slice(1)}</span>
                   </div>
                   <p>{claim.description}</p>
                   <span className="claim-photo-name"><Icon name="orders" size={13} /> {claim.photoName}</span>
@@ -147,10 +197,10 @@ export function WarrantyClaims() {
                     {claimStageLabels.map((stage, index) => {
                       const completed = index < getClaimStageIndex(claim.status) || (claim.status === 'repaired' && index === 3)
                       const current = index === getClaimStageIndex(claim.status)
-                      const rejected = claim.status === 'rejected' && index === 2
+                      const rejected = (claim.status === 'rejected' || claim.status === 'voided') && index === 2
                       return (
                         <div className={`claim-timeline-step${completed ? ' claim-timeline-step--done' : ''}${current ? ' claim-timeline-step--current' : ''}${rejected ? ' claim-timeline-step--rejected' : ''}`} key={stage}>
-                          <span>{completed ? '✓' : rejected ? '!' : index + 1}</span><small>{rejected ? 'Rejected' : stage}</small>
+                          <span>{completed ? '✓' : rejected ? '!' : index + 1}</span><small>{claim.status === 'voided' && index === 2 ? 'Voided' : rejected ? 'Rejected' : stage}</small>
                         </div>
                       )
                     })}

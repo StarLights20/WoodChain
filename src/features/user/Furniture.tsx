@@ -1,11 +1,14 @@
 import { lazy, Suspense, useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { furnitureCatalog, type Furniture } from '../../data/dashboardData'
+import { useAdminData } from '../../data/adminDataStore'
 
 const Furniture3D = lazy(() => import('../../Furniture3D'))
 
 export function UserOverview() {
   const [selectedFurniture, setSelectedFurniture] = useState<Furniture | null>(null)
+  const [publishedOrderNotice, setPublishedOrderNotice] = useState('')
+  const { data, setData } = useAdminData()
 
   return (
     <>
@@ -34,6 +37,49 @@ export function UserOverview() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className="published-products-section" aria-labelledby="published-products-heading">
+        <div className="furniture-section-heading">
+          <div><h2 id="published-products-heading">Katalog WoodChain terbaru</h2><p>Produk yang dipublikasikan admin, beserta metadata passport digitalnya.</p></div>
+          <span>{data.products.length} produk terdaftar</span>
+        </div>
+        <div className="published-products-list">
+          {data.products.map((product) => (
+            <article className="published-product-card" key={product.id}>
+              <span className="published-product-icon"><Icon name="box" size={20} /></span>
+              <div><span>{product.category} · {product.warrantyMonths} bulan garansi</span><strong>{product.name}</strong><small>SVLK {product.svlkCertificate} · Perajin {product.craftsman}</small></div>
+              <strong className="published-product-price">{new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(product.price)}</strong>
+              <a
+                className="published-product-order"
+                href={`https://wa.me/6288216300451?text=${encodeURIComponent(`Halo WoodChain, saya ingin memesan ${product.name}.`)}`}
+                target="_blank"
+                rel="noreferrer"
+                onClick={() => {
+                  const now = new Date()
+                  const year = now.getFullYear()
+                  const suffix = String(now.getTime()).slice(-6)
+                  const orderId = `ORD-${year}-${suffix}`
+                  setData((current) => ({
+                    ...current,
+                    pendingOrders: [{
+                      orderId,
+                      customerEmail: 'user@example.com',
+                      customerWallet: '0x71C...93F2',
+                      productName: product.name,
+                      serialNumber: `WC-JTI-${year}-${suffix}`,
+                      warrantyMonths: product.warrantyMonths,
+                      orderDate: now.toISOString().slice(0, 10),
+                      status: 'Pending Mint',
+                    }, ...current.pendingOrders],
+                  }))
+                  setPublishedOrderNotice(`Pesanan demo ${orderId} masuk ke dashboard admin untuk dikonfirmasi.`)
+                }}
+              >Pesan via WhatsApp</a>
+            </article>
+          ))}
+        </div>
+        {publishedOrderNotice && <p className="order-demo-notice" role="status">{publishedOrderNotice}</p>}
       </section>
 
       <section className="furniture-note">
@@ -90,6 +136,8 @@ export function FurnitureIllustration({ type }: { type: Furniture['id'] }) {
 
 export function FurnitureDetail({ furniture, onClose }: { furniture: Furniture; onClose: () => void }) {
   const [selectedVariant, setSelectedVariant] = useState(furniture.woodVariants[0])
+  const [orderNotice, setOrderNotice] = useState('')
+  const { setData } = useAdminData()
   const message = encodeURIComponent([
     'Halo WoodChain, saya ingin memesan furnitur berikut:',
     `Produk: ${furniture.name}`,
@@ -99,6 +147,28 @@ export function FurnitureDetail({ furniture, onClose }: { furniture: Furniture; 
     `Garansi: ${furniture.warrantyMonths} bulan`,
     `Perajin: ${furniture.craftsman}`,
   ].join('\n'))
+
+  const createAdminOrder = () => {
+    const now = new Date()
+    const year = now.getFullYear()
+    const suffix = String(now.getTime()).slice(-6)
+    const orderId = `ORD-${year}-${suffix}`
+    const serialNumber = `WC-JTI-${year}-${suffix}`
+    setData((current) => ({
+      ...current,
+      pendingOrders: [{
+        orderId,
+        customerEmail: 'user@example.com',
+        customerWallet: '0x71C...93F2',
+        productName: furniture.name,
+        serialNumber,
+        warrantyMonths: furniture.warrantyMonths,
+        orderDate: now.toISOString().slice(0, 10),
+        status: 'Pending Mint',
+      }, ...current.pendingOrders],
+    }))
+    setOrderNotice(`Pesanan demo ${orderId} masuk ke dashboard admin untuk dikonfirmasi.`)
+  }
 
   return (
     <div className="furniture-modal-backdrop" onClick={onClose}>
@@ -156,9 +226,10 @@ export function FurnitureDetail({ furniture, onClose }: { furniture: Furniture; 
             </div>
           </div>
         </div>
-        <a className="whatsapp-button" href={`https://wa.me/6288216300451?text=${message}`} target="_blank" rel="noreferrer">
+        <a className="whatsapp-button" href={`https://wa.me/6288216300451?text=${message}`} target="_blank" rel="noreferrer" onClick={createAdminOrder}>
           <span className="whatsapp-mark">WA</span> Pesan via WhatsApp <Icon name="arrow" size={16} />
         </a>
+        {orderNotice && <p className="order-demo-notice" role="status">{orderNotice}</p>}
       </section>
     </div>
   )

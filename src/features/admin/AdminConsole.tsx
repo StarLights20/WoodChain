@@ -1,92 +1,12 @@
-import { useState, type FormEvent } from 'react'
-import mockAdminData from '../../data/mockAdminData.json'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useAdminData, type AdminBatch, type AdminClaim, type AdminData, type AdminDataUpdater, type AdminNfcLog, type AdminOrder, type AdminProduct, type AdminChip } from '../../data/adminDataStore'
 import './AdminConsole.css'
 
-type Product = {
-  id: string
-  name: string
-  category: string
-  price: number
-  glbFile: string
-  photoFile: string
-  svlkCertificate: string
-  craftsman: string
-  warrantyMonths: number
-  cid: string
-  status: string
-}
-
-type Order = {
-  orderId: string
-  customerEmail: string
-  customerWallet: string
-  productName: string
-  serialNumber: string
-  warrantyMonths: number
-  orderDate: string
-  status: string
-  tokenId?: string
-  tokenExpiresAt?: string
-}
-
-type Claim = {
-  claimId: string
-  tokenId: string
-  customerEmail: string
-  productName: string
-  issueDescription: string
-  photoIpfsUrl: string
-  status: string
-  submittedDate: string
-}
-
-type NfcLog = {
-  logId: string
-  serialNumber: string
-  scannedAt: string
-  device: string
-  result: string
-  newDynamicHash: string
-}
-
-type Batch = { batchId: string; createdAt: string; chipsCount: number }
-type Chip = { chipId: string; chipType: string; batchId: string; serialNumber: string; authInitHash: string }
-type Transfer = {
-  transferId: string
-  tokenId: string
-  productName: string
-  from: string
-  to: string
-  transferredAt: string
-  status: string
-}
-
-type AdminData = {
-  adminProfile: { address: string; role: string; network: string; connectedWallet: string }
-  products: Product[]
-  pendingOrders: Order[]
-  claims: Claim[]
-  nfcLogs: NfcLog[]
-  batches: Batch[]
-  chips: Chip[]
-  warrantyTransfers: Transfer[]
-}
-
-const initialAdminData = mockAdminData as AdminData
 const formatPrice = (price: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(price)
 const createDemoHash = (prefix: string) => `${prefix}-${Math.random().toString(16).slice(2, 10).toUpperCase()}`
 
 export function AdminConsole({ page }: { page: string }) {
-  const [data, setData] = useState<AdminData>(() => ({
-    ...initialAdminData,
-    products: [...initialAdminData.products],
-    pendingOrders: [...initialAdminData.pendingOrders],
-    claims: [...initialAdminData.claims],
-    nfcLogs: [...initialAdminData.nfcLogs],
-    batches: [...initialAdminData.batches],
-    chips: [...initialAdminData.chips],
-    warrantyTransfers: [...initialAdminData.warrantyTransfers],
-  }))
+  const { data, setData } = useAdminData()
   const [notice, setNotice] = useState('')
 
   const updateClaimStatus = (claimId: string, status: string) => {
@@ -132,7 +52,7 @@ function Notice({ children }: { children: string }) {
   return children ? <div className="admin-console-notice" role="status">{children}</div> : null
 }
 
-function CatalogPage({ data, setData, notice, setNotice }: { data: AdminData; setData: React.Dispatch<React.SetStateAction<AdminData>>; notice: string; setNotice: (message: string) => void }) {
+function CatalogPage({ data, setData, notice, setNotice }: { data: AdminData; setData: AdminDataUpdater; notice: string; setNotice: (message: string) => void }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [glbFile, setGlbFile] = useState<File | null>(null)
@@ -155,7 +75,7 @@ function CatalogPage({ data, setData, notice, setNotice }: { data: AdminData; se
     setSaving(true)
     await new Promise((resolve) => window.setTimeout(resolve, 900))
     const cid = `ipfs://${createDemoHash('QmWoodChain')}`
-    const product: Product = {
+    const product: AdminProduct = {
       id: createDemoHash('PRD'),
       name: String(form.get('name')),
       category: String(form.get('category')),
@@ -222,7 +142,7 @@ function CatalogPage({ data, setData, notice, setNotice }: { data: AdminData; se
   )
 }
 
-function OrdersPage({ data, setData, notice, setNotice }: { data: AdminData; setData: React.Dispatch<React.SetStateAction<AdminData>>; notice: string; setNotice: (message: string) => void }) {
+function OrdersPage({ data, setData, notice, setNotice }: { data: AdminData; setData: AdminDataUpdater; notice: string; setNotice: (message: string) => void }) {
   const [selectedId, setSelectedId] = useState(data.pendingOrders.find((order) => order.status === 'Pending Mint')?.orderId ?? '')
   const selectedOrder = data.pendingOrders.find((order) => order.orderId === selectedId)
   const [buyerAddress, setBuyerAddress] = useState(selectedOrder?.customerWallet ?? '')
@@ -231,7 +151,7 @@ function OrdersPage({ data, setData, notice, setNotice }: { data: AdminData; set
   const [minting, setMinting] = useState(false)
   const [error, setError] = useState('')
 
-  const chooseOrder = (order: Order) => {
+  const chooseOrder = (order: AdminOrder) => {
     setSelectedId(order.orderId)
     setBuyerAddress(order.customerWallet)
     setSerialNumber(order.serialNumber)
@@ -292,14 +212,15 @@ function OrdersPage({ data, setData, notice, setNotice }: { data: AdminData; set
   )
 }
 
-function NfcPage({ data, setData, notice, setNotice }: { data: AdminData; setData: React.Dispatch<React.SetStateAction<AdminData>>; notice: string; setNotice: (message: string) => void }) {
+function NfcPage({ data, setData, notice, setNotice }: { data: AdminData; setData: AdminDataUpdater; notice: string; setNotice: (message: string) => void }) {
   const [batchName, setBatchName] = useState('')
   const [selectedBatch, setSelectedBatch] = useState(data.batches[0]?.batchId ?? '')
   const [chipId, setChipId] = useState('')
   const [chipType, setChipType] = useState('NTAG213')
   const [serial, setSerial] = useState('')
-  const [activeChip, setActiveChip] = useState<Chip | null>(data.chips[0] ?? null)
+  const [activeChipId, setActiveChipId] = useState(data.chips[0]?.chipId ?? '')
   const [error, setError] = useState('')
+  const activeChip = data.chips.find((chip) => chip.chipId === activeChipId) ?? data.chips[0] ?? null
 
   const createBatch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -308,7 +229,7 @@ function NfcPage({ data, setData, notice, setNotice }: { data: AdminData; setDat
       setError(id ? 'ID batch sudah terdaftar.' : 'Masukkan ID batch produksi.')
       return
     }
-    const batch = { batchId: id, createdAt: new Date().toISOString().slice(0, 10), chipsCount: 0 }
+    const batch: AdminBatch = { batchId: id, createdAt: new Date().toISOString().slice(0, 10), chipsCount: 0 }
     setData((current) => ({ ...current, batches: [batch, ...current.batches] }))
     setSelectedBatch(id)
     setBatchName('')
@@ -328,8 +249,8 @@ function NfcPage({ data, setData, notice, setNotice }: { data: AdminData; setDat
       setError('ID chip sudah terdaftar.')
       return
     }
-    const chip: Chip = { chipId: chipId.trim(), chipType, batchId: selectedBatch, serialNumber: serial.trim(), authInitHash: createDemoHash('AUTH-INIT') }
-    const log: NfcLog = {
+    const chip: AdminChip = { chipId: chipId.trim(), chipType, batchId: selectedBatch, serialNumber: serial.trim(), authInitHash: createDemoHash('AUTH-INIT') }
+    const log: AdminNfcLog = {
       logId: createDemoHash('LOG'),
       serialNumber: chip.serialNumber,
       scannedAt: new Date().toLocaleString('sv-SE'),
@@ -343,7 +264,7 @@ function NfcPage({ data, setData, notice, setNotice }: { data: AdminData; setDat
       batches: current.batches.map((batch) => batch.batchId === selectedBatch ? { ...batch, chipsCount: batch.chipsCount + 1 } : batch),
       nfcLogs: [log, ...current.nfcLogs],
     }))
-    setActiveChip(chip)
+    setActiveChipId(chip.chipId)
     setChipId('')
     setSerial('')
     setNotice(`Chip ${chip.chipId} terdaftar dan AUTH-INIT-HASH berhasil dibuat.`)
@@ -351,7 +272,7 @@ function NfcPage({ data, setData, notice, setNotice }: { data: AdminData; setDat
 
   return (
     <div className="admin-console">
-      <PageIntro eyebrow="PRODUKSI & PAIRING NFC" title="NFC Batch Encoder" description="Kelola batch produksi, daftarkan chip NTAG, dan siapkan pairing untuk aplikasi smartphone." />
+      <PageIntro eyebrow="PRODUKSI & PAIRING NFC" title="NFC Batch Encoder" description="Kelola batch produksi, daftarkan chip NTAG, dan siapkan QR pairing yang dapat dipindai dengan kamera." />
       <div className="admin-console-grid admin-console-grid--nfc">
         <div className="admin-console-card">
           <div className="admin-card-heading"><div><h3>Batch produksi</h3><p>Buat identitas kelompok produksi furnitur.</p></div><span className="admin-card-icon">▦</span></div>
@@ -372,7 +293,7 @@ function NfcPage({ data, setData, notice, setNotice }: { data: AdminData; setDat
       </div>
       <section className="admin-console-card admin-pairing-card">
         <div className="admin-card-heading"><div><h3>QR Code pairing</h3><p>QR simulasi untuk alur penanaman data di chip produk.</p></div><span className="admin-count-badge">SIMULASI</span></div>
-        {activeChip ? <div className="admin-pairing-content"><SimulatedQr value={`${activeChip.chipId}|${activeChip.serialNumber}|${activeChip.authInitHash}`} /><div><span className="admin-console-eyebrow">CHIP TERPILIH · {activeChip.chipType}</span><h4>{activeChip.serialNumber}</h4><p>ID chip: <code>{activeChip.chipId}</code></p><p>Hash awal: <code>{activeChip.authInitHash}</code></p><p>Batch: <strong>{activeChip.batchId}</strong></p><p className="admin-demo-note">QR bersifat visual demo dan belum membawa payload yang dapat dipindai.</p></div></div> : <div className="admin-empty-state">Daftarkan chip NFC untuk membuat preview QR pairing.</div>}
+        {activeChip ? <div className="admin-pairing-content"><PairingQr chip={activeChip} /><div><span className="admin-console-eyebrow">CHIP TERPILIH · {activeChip.chipType}</span><h4>{activeChip.serialNumber}</h4><p>ID chip: <code>{activeChip.chipId}</code></p><p>Hash awal: <code>{activeChip.authInitHash}</code></p><p>Batch: <strong>{activeChip.batchId}</strong></p><p className="admin-demo-note">QR berisi nomor seri dan hash awal, sehingga dapat dipindai langsung melalui kamera QR pada dashboard konsumen.</p></div></div> : <div className="admin-empty-state">Daftarkan chip NFC untuk membuat preview QR pairing.</div>}
       </section>
       <section className="admin-console-card">
         <div className="admin-card-heading"><div><h3>Chip terdaftar</h3><p>{data.chips.length} chip terhubung ke batch produksi.</p></div></div>
@@ -384,25 +305,49 @@ function NfcPage({ data, setData, notice, setNotice }: { data: AdminData; setDat
   )
 }
 
-function SimulatedQr({ value }: { value: string }) {
-  const size = 21
-  const seed = Array.from(value).reduce((total, character) => total + character.charCodeAt(0), 0)
-  const finderCell = (x: number, y: number, left: number, top: number) => {
-    const dx = x - left
-    const dy = y - top
-    if (dx < 0 || dy < 0 || dx > 6 || dy > 6) return null
-    return dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4)
-  }
-  return <div className="admin-qr" role="img" aria-label="Ilustrasi QR code pairing simulasi">{Array.from({ length: size * size }, (_, index) => {
-    const x = index % size
-    const y = Math.floor(index / size)
-    const fixed = finderCell(x, y, 0, 0) ?? finderCell(x, y, size - 7, 0) ?? finderCell(x, y, 0, size - 7)
-    const filled = fixed ?? ((x * 17 + y * 31 + seed + x * y) % 7 < 3)
-    return <i key={index} className={filled ? 'admin-qr-cell admin-qr-cell--filled' : 'admin-qr-cell'} />
-  })}</div>
+function PairingQr({ chip }: { chip: AdminChip }) {
+  const [qr, setQr] = useState<{ value: string; path: string; size: number } | null>(null)
+  const [error, setError] = useState<{ value: string; message: string } | null>(null)
+  const requestIdRef = useRef(0)
+  const payload = new URL('woodchain://verify')
+  payload.searchParams.set('serial', chip.serialNumber)
+  payload.searchParams.set('chip', chip.chipId)
+  payload.searchParams.set('hash', chip.authInitHash)
+  const value = payload.toString()
+
+  useEffect(() => {
+    const requestId = requestIdRef.current + 1
+    requestIdRef.current = requestId
+    void import('@zxing/library').then(({ BarcodeFormat, EncodeHintType, QRCodeWriter }) => {
+      const matrix = new QRCodeWriter().encode(value, BarcodeFormat.QR_CODE, 192, 192, new Map([[EncodeHintType.MARGIN, 2]]))
+      const cells: string[] = []
+      for (let y = 0; y < matrix.getHeight(); y += 1) {
+        for (let x = 0; x < matrix.getWidth(); x += 1) {
+          if (matrix.get(x, y)) cells.push(`M${x},${y}h1v1h-1z`)
+        }
+      }
+      if (requestIdRef.current === requestId) setQr({ value, path: cells.join(''), size: matrix.getWidth() })
+    }).catch((cause: unknown) => {
+      console.error('QR pairing generation failed:', cause)
+      if (requestIdRef.current === requestId) setError({ value, message: 'QR gagal dibuat. Muat ulang halaman lalu coba lagi.' })
+    })
+    return () => { requestIdRef.current += 1 }
+  }, [value])
+
+  if (error?.value === value) return <div className="admin-qr-error" role="alert">{error.message}</div>
+  if (!qr || qr.value !== value) return <div className="admin-qr-loading" role="status">Menyiapkan QR...</div>
+  return (
+    <div className="admin-qr-container">
+      <svg className="admin-qr" viewBox={`0 0 ${qr.size} ${qr.size}`} role="img" aria-label={`QR pairing ${chip.serialNumber}`}>
+        <rect width="100%" height="100%" fill="#fff" />
+        <path d={qr.path} fill="#20392b" />
+      </svg>
+      <code className="admin-qr-payload">{value}</code>
+    </div>
+  )
 }
 
-function ClaimsPage({ claims, onStatusChange, notice }: { claims: Claim[]; onStatusChange: (claimId: string, status: string) => void; notice: string }) {
+function ClaimsPage({ claims, onStatusChange, notice }: { claims: AdminClaim[]; onStatusChange: (claimId: string, status: string) => void; notice: string }) {
   return (
     <div className="admin-console">
       <PageIntro eyebrow="KLAIM KONSUMEN" title="Konsol Verifikasi & Klaim Garansi" description="Tinjau bukti kerusakan, putuskan klaim, atau cabut garansi untuk kasus kloning." />

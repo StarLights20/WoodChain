@@ -23,8 +23,8 @@
   "pendingOrders": [
     {
       "orderId": "ORD-2026-001",
-      "customerEmail": "pembeli.jati@gmail.com",
-      "customerWallet": "0x3A21...91B2",
+      "customerEmail": "user@example.com",
+      "customerWallet": "0x71C...93F2",
       "productName": "Meja Makan Jati Minimalis 6 Kursi",
       "serialNumber": "MBL-JATI-2026-089",
       "warrantyMonths": 24,

@@ -458,18 +458,52 @@
 .admin-qr {
   width: 154px;
   height: 154px;
-  padding: 9px;
-  display: grid;
+  display: block;
   flex: 0 0 auto;
-  grid-template-columns: repeat(21, 1fr);
-  grid-template-rows: repeat(21, 1fr);
+  padding: 8px;
   border: 1px solid #e8ede9;
   border-radius: 7px;
   background: #fff;
 }
 
-.admin-qr-cell--filled {
-  background: #20392b;
+.admin-qr-container {
+  width: 154px;
+  flex: 0 0 auto;
+  display: grid;
+  gap: 7px;
+}
+
+.admin-qr-container .admin-qr {
+  width: 100%;
+  height: auto;
+}
+
+.admin-qr-payload {
+  overflow-wrap: anywhere;
+  color: #78867c;
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.admin-qr-loading,
+.admin-qr-error {
+  width: 154px;
+  min-height: 154px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 10px;
+  border: 1px solid #e8ede9;
+  border-radius: 7px;
+  color: #738078;
+  background: #f7faf7;
+  text-align: center;
+  font-size: 10px;
+}
+
+.admin-qr-error {
+  color: #a95656;
+  background: #fff8f8;
 }
 
 .admin-empty-state,
