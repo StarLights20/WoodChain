@@ -1,0 +1,53 @@
+[
+  {
+    "id": "cabinet",
+    "name": "Lemari Aruna",
+    "category": "Penyimpanan",
+    "description": "Lemari jati solid dengan ruang simpan lapang dan detail finishing yang hangat.",
+    "materials": ["Teak Wood SVLK", "Finishing natural matte", "Engsel soft-close"],
+    "wood": "Teak Wood SVLK",
+    "finish": "Natural honey",
+    "dimensions": "120 × 45 × 200 cm",
+    "craftsman": "Budi Santoso · Jepara, Jawa Tengah",
+    "warrantyMonths": 24,
+    "woodVariants": [
+      { "name": "Natural Honey", "color": "#bd9468" },
+      { "name": "Teak Brown", "color": "#8f603c" },
+      { "name": "Smoked Oak", "color": "#665044" }
+    ]
+  },
+  {
+    "id": "table",
+    "name": "Meja Rona",
+    "category": "Meja kerja",
+    "description": "Meja kerja kokoh dari jati tersertifikasi dengan permukaan luas untuk aktivitas harian.",
+    "materials": ["Teak Wood SVLK", "Finishing water-based", "Konstruksi kayu solid"],
+    "wood": "Teak Wood SVLK",
+    "finish": "Walnut matte",
+    "dimensions": "140 × 70 × 75 cm",
+    "craftsman": "Siti Rahmawati · Yogyakarta",
+    "warrantyMonths": 24,
+    "woodVariants": [
+      { "name": "Natural Honey", "color": "#bd9468" },
+      { "name": "Teak Brown", "color": "#8f603c" },
+      { "name": "Smoked Oak", "color": "#665044" }
+    ]
+  },
+  {
+    "id": "shelf",
+    "name": "Rak Nara",
+    "category": "Rak & dekorasi",
+    "description": "Rak jati serbaguna buatan perajin lokal untuk menyusun buku dan koleksi favorit.",
+    "materials": ["Teak Wood SVLK", "Finishing natural matte", "Sambungan kayu tradisional"],
+    "wood": "Teak Wood SVLK",
+    "finish": "Ash natural",
+    "dimensions": "90 × 35 × 180 cm",
+    "craftsman": "Agus Pranoto · Jepara, Jawa Tengah",
+    "warrantyMonths": 24,
+    "woodVariants": [
+      { "name": "Natural Honey", "color": "#bd9468" },
+      { "name": "Teak Brown", "color": "#8f603c" },
+      { "name": "Smoked Oak", "color": "#665044" }
+    ]
+  }
+]

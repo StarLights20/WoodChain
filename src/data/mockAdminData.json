@@ -1,0 +1,84 @@
+{
+  "adminProfile": {
+    "address": "0x71C3b728a9F02391cD29103F88F1",
+    "role": "MANUFACTURER_ROLE",
+    "network": "Polygon Amoy Testnet",
+    "connectedWallet": "Phantom Wallet"
+  },
+  "products": [
+    {
+      "id": "PRD-001",
+      "name": "Meja Makan Jati Minimalis 6 Kursi",
+      "category": "Meja makan",
+      "price": 18500000,
+      "glbFile": "meja-jati-6-kursi.glb",
+      "photoFile": "meja-jati-6-kursi.jpg",
+      "svlkCertificate": "SVLK-JTG-2026-00089",
+      "craftsman": "Bambang Santoso · Jepara",
+      "warrantyMonths": 24,
+      "cid": "ipfs://QmWoodChainJati6Kursi2026",
+      "status": "Pinned"
+    }
+  ],
+  "pendingOrders": [
+    {
+      "orderId": "ORD-2026-001",
+      "customerEmail": "pembeli.jati@gmail.com",
+      "customerWallet": "0x3A21...91B2",
+      "productName": "Meja Makan Jati Minimalis 6 Kursi",
+      "serialNumber": "MBL-JATI-2026-089",
+      "warrantyMonths": 24,
+      "orderDate": "2026-11-10",
+      "status": "Pending Mint"
+    }
+  ],
+  "claims": [
+    {
+      "claimId": "CLM-101",
+      "tokenId": "101",
+      "customerEmail": "konsumen1@gmail.com",
+      "productName": "Kursi Santai Ergo-Wood",
+      "issueDescription": "Engsel sambungan kayu bagian belakang sedikit renggang.",
+      "photoIpfsUrl": "ipfs://QmWoodChainClaimPhoto101",
+      "status": "Submitted",
+      "submittedDate": "2026-11-08"
+    }
+  ],
+  "nfcLogs": [
+    {
+      "logId": "LOG-881",
+      "serialNumber": "MBL-JATI-2026-001",
+      "scannedAt": "2026-11-11 10:15:22",
+      "device": "Android · Chrome",
+      "result": "AuthentiCoding Verified",
+      "newDynamicHash": "AUTH-99A1-HASH-2026"
+    }
+  ],
+  "batches": [
+    {
+      "batchId": "BATCH-JATI-2026-Q1",
+      "createdAt": "2026-11-11",
+      "chipsCount": 1
+    }
+  ],
+  "chips": [
+    {
+      "chipId": "04:A1:B2:C3:D4:E5:80",
+      "chipType": "NTAG213",
+      "batchId": "BATCH-JATI-2026-Q1",
+      "serialNumber": "MBL-JATI-2026-001",
+      "authInitHash": "AUTH-INIT-7A31C9F2"
+    }
+  ],
+  "warrantyTransfers": [
+    {
+      "transferId": "TRF-204",
+      "tokenId": "88",
+      "productName": "Lemari Aruna 2 Pintu",
+      "from": "0x71C3...F1",
+      "to": "0x9B42...A810",
+      "transferredAt": "2026-11-09 16:42:10",
+      "status": "Transfer tercatat"
+    }
+  ]
+}
